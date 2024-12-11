@@ -18,7 +18,9 @@ using namespace std;
     #include <unistd.h> 
     #include <sys/stat.h>
 #elif defined(_WIN32)
+    #define byte win_byte
     #include <windows.h>
+    #undef byte
     #include <filesystem>
     namespace fs = filesystem;
 #endif
@@ -220,6 +222,9 @@ void LoadStudentsFromFileTXT (const char* filename);
 void LoadStudentsFromBinaryFile (const char* filename);
 void ListTxtFilesAndLoad ();
 void ListBinFilesAndLoad ();
+void ListFiles (const char* extension, char filenames[ML][ML_STR], int& fileCount);
+void CreateOutputFilename (const char* inputFilename, const char* extension, char* outputFilename);
+void ConvertFiles ();
 
 //--------------------------------------------------------------------------------------//
 
@@ -278,6 +283,9 @@ int main() {
             break;
         case 12:
             ListBinFilesAndLoad();
+            break;
+        case 13:
+            ConvertFiles();
             break;
         default:
             break;
@@ -342,6 +350,7 @@ void PrintMenu () {
     cout << endl;
     cout << "\033[1m18) /lbind\033[0m - \033[1;36mLoad\033[0m binary students list" << endl;
     cout << "\033[1m19) /ltxtd\033[0m - \033[1;36mLoad\033[0m txt students list" << endl;
+    cout << "\033[1m20) /cfile\033[0m - \033[1;36mConvert\033[0m file to another extens." << endl;
 }
 void PrintSortMenu () {
     cout << "\n\033[1;36mSort menu:\033[0m\n" << endl;
@@ -386,6 +395,7 @@ void MenuWork() {
     else if (strcmp(string, "/binm") == 0 or strcmp(string, "5") == 0) programmState = 6;
     else if (strcmp(string, "/lbind") == 0 or strcmp(string, "18") == 0) programmState = 12;
     else if (strcmp(string, "/ltxtd") == 0 or strcmp(string, "19") == 0) programmState = 11;
+    else if (strcmp(string, "/cfile") == 0 or strcmp(string, "20") == 0) programmState = 13;
     else {
         cout << "Command is not found" << endl;
     }
@@ -1412,7 +1422,9 @@ void LoadStudentsFromBinaryFile(const char* filename) {
     void ListTxtFilesAndLoad() {
     char currentPath[ML_STR];
     if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
-        cerr << "Failed to get current directory." << endl;
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFailed to get current directory.\n" << endl;
+        programmState = 1;
         return;
     }
 
@@ -1425,7 +1437,9 @@ void LoadStudentsFromBinaryFile(const char* filename) {
 
     DIR* dir = opendir(currentPath);
     if (!dir) {
-        cerr << "Failed to open directory: " << currentPath << endl;
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFailed to open directory: " << currentPath << "\n" << endl;
+        programmState = 1;
         return;
     }
 
@@ -1472,7 +1486,9 @@ void LoadStudentsFromBinaryFile(const char* filename) {
     void ListBinFilesAndLoad() {
     char currentPath[ML_STR];
     if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
-        cerr << "Failed to get current directory." << endl;
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFailed to get current directory.\n" << endl;
+        programmState = 1;
         return;
     }
 
@@ -1485,7 +1501,9 @@ void LoadStudentsFromBinaryFile(const char* filename) {
 
     DIR* dir = opendir(currentPath);
     if (!dir) {
-        cerr << "Failed to open directory: " << currentPath << endl;
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFailed to open directory: " << currentPath << "\n" << endl;
+        programmState = 1;
         return;
     }
 
@@ -1613,6 +1631,122 @@ void LoadStudentsFromBinaryFile(const char* filename) {
     }
 #endif
 
+void ListFiles(const char* extension, char filenames[ML][ML_STR], int& fileCount) {
+#ifdef __linux__
+    char currentPath[ML_STR];
+    if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFailed to get current directory.\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    DIR* dir = opendir(currentPath);
+    if (!dir) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFailed to open directory: " << currentPath << "\n"<< endl;
+        programmState = 1;
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type == DT_REG) {
+            char* filename = entry->d_name;
+            if (strlen(filename) >= strlen(extension) &&
+                strcmp(filename + strlen(filename) - strlen(extension), extension) == 0) {
+                strncpy(filenames[fileCount], filename, ML_STR);
+                filenames[fileCount][ML_STR - 1] = '\0';
+                fileCount++;
+            }
+        }
+    }
+    closedir(dir);
+#elif defined(_WIN32)
+    fs::path currentPath = fs::current_path();
+    for (const auto& entry : fs::directory_iterator(currentPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == extension) {
+            strncpy(filenames[fileCount], entry.path().filename().string().c_str(), ML_STR);
+            filenames[fileCount][ML_STR - 1] = '\0';
+            fileCount++;
+        }
+    }
+#endif
+}
+void CreateOutputFilename(const char* inputFilename, const char* extension, char* outputFilename) {
+    int len = strlen(inputFilename);
+    int extLen = strlen(extension);
+
+    strncpy(outputFilename, inputFilename, len - extLen);
+    outputFilename[len - extLen] = '\0';
+    strcat(outputFilename, extension);
+}
+void ConvertFiles() {
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;36mChoose conversion type:\033[0m\n" << endl;
+    cout << "1) TXT to BIN" << endl;
+    cout << "2) BIN to TXT" << endl;
+    cout << "Enter your choice: ";
+
+    int choice;
+    cin >> choice;
+
+    if (choice != 1 && choice != 2) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\n\033[1;31mInvalid choice.\033[0m\n" << endl;
+        return;
+    }
+
+    char filenames[ML][ML_STR];
+    int fileCount = 0;
+    const char* extension = (choice == 1) ? ".txt" : ".bin";
+
+    ListFiles(extension, filenames, fileCount);
+
+    if (fileCount == 0) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\n\033[1;31mNo " << extension << " files found.\033[0m\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;36mAvailable files:\033[0m\n" << endl;
+    for (int i = 0; i < fileCount; ++i) {
+        cout << i + 1 << ") " << filenames[i] << endl;
+    }
+
+    cout << "\nEnter the number of the file to convert: ";
+    int selectedIndex;
+    cin >> selectedIndex;
+
+    if (selectedIndex < 1 || selectedIndex > fileCount) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\n\033[1;31mInvalid file number.\033[0m\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    char inputFilename[ML_STR];
+    strncpy(inputFilename, filenames[selectedIndex - 1], ML_STR);
+    inputFilename[ML_STR - 1] = '\0';
+
+    char outputFilename[ML_STR];
+    const char* newExtension = (choice == 1) ? ".bin" : ".txt";
+    CreateOutputFilename(inputFilename, newExtension, outputFilename);
+
+    if (choice == 1) {
+        LoadStudentsFromFileTXT(inputFilename);
+        SaveListToBinary();
+    } else {
+        LoadStudentsFromBinaryFile(inputFilename);
+        SaveListToTxt();
+    }
+
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;32mFile converted successfully to " << outputFilename << "!\033[0m\n" << endl;
+    programmState = 1;
+}
 
 // END FUNCTIONS
 
