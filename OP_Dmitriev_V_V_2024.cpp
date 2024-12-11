@@ -10,12 +10,18 @@
 #include <iostream>
 #include <cstring>
 #include <fstream>
-#include <windows.h>
-#include <filesystem>
 
 using namespace std;
 
-namespace fs = filesystem;
+#ifdef __linux__
+    #include <dirent.h>
+    #include <unistd.h> 
+    #include <sys/stat.h>
+#elif defined(_WIN32)
+    #include <windows.h>
+    #include <filesystem>
+    namespace fs = filesystem;
+#endif
 
 //--------------------------------------------------------------------------------------//
 
@@ -1369,7 +1375,162 @@ void LoadStudentsFromFileTXT(const char* filename) {
 
     file.close();
 }
-void ListTxtFilesAndLoad() {
+void LoadStudentsFromBinaryFile(const char* filename) {
+    ifstream file(filename, ios::binary);
+    if (!file.is_open()) {
+        cout << "Unc. err then try to open: " << filename << endl;
+        return;
+    }
+    studentsNum = 0;
+
+    file.read(reinterpret_cast<char*>(&studentsNum), sizeof(studentsNum));
+
+    for (int i = 0; i < studentsNum; ++i) {
+        Student& student = students[i];
+
+        file.read(student.firstName, MBL);
+        file.read(student.secondName, MBL);
+        file.read(student.thirdname, MBL);
+        file.read(student.group, MBL);
+
+        file.read(reinterpret_cast<char*>(&student.joinYear), sizeof(student.joinYear));
+        file.read(reinterpret_cast<char*>(&student.course), sizeof(student.course));
+        file.read(reinterpret_cast<char*>(&student.birthdate), sizeof(student.birthdate));
+        file.read(reinterpret_cast<char*>(&student.birthmounth), sizeof(student.birthmounth));
+        file.read(reinterpret_cast<char*>(&student.birthyear), sizeof(student.birthyear));
+
+        file.read(reinterpret_cast<char*>(student.grades), sizeof(student.grades));
+
+        file.read(reinterpret_cast<char*>(&student.avgGrade), sizeof(student.avgGrade));
+    }
+
+    file.close();
+}
+
+
+#ifdef __linux__
+    void ListTxtFilesAndLoad() {
+    char currentPath[ML_STR];
+    if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
+        cerr << "Failed to get current directory." << endl;
+        return;
+    }
+
+    int fileIndex = 1;
+    char filenames[ML][ML_STR];
+    int fileCount = 0;
+
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;36mTXT files in dir:\033[0m\n" << endl;
+
+    DIR* dir = opendir(currentPath);
+    if (!dir) {
+        cerr << "Failed to open directory: " << currentPath << endl;
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type == DT_REG) {
+            string filename = entry->d_name;
+            if (filename.size() >= 4 && filename.substr(filename.size() - 4) == ".txt") {
+                strncpy(filenames[fileCount], filename.c_str(), ML_STR);
+                filenames[fileCount][ML_STR - 1] = '\0';
+                fileCount++;
+                cout << "\033[1m" << fileIndex << ") " << filename << "\033[0m" << endl;
+                fileIndex++;
+            }
+        }
+    }
+
+    closedir(dir);
+
+    if (fileCount == 0) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFiles .txt doesn't find.\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    cout << endl;
+    int selectedIndex;
+    cout << "Input number of file to load: ";
+    cin >> selectedIndex;
+
+    if (selectedIndex < 1 || selectedIndex > fileCount) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nIncorrect number of file.\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    LoadStudentsFromFileTXT(filenames[selectedIndex - 1]);
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;32mTXT file with students loaded!\033[0m\n" << endl;
+    programmState = 1;
+    }
+    void ListBinFilesAndLoad() {
+    char currentPath[ML_STR];
+    if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
+        cerr << "Failed to get current directory." << endl;
+        return;
+    }
+
+    int fileIndex = 1;
+    char filenames[ML][ML_STR];
+    int fileCount = 0;
+
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;36mBINARY files in dir:\033[0m\n" << endl;
+
+    DIR* dir = opendir(currentPath);
+    if (!dir) {
+        cerr << "Failed to open directory: " << currentPath << endl;
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type == DT_REG) {
+            string filename = entry->d_name;
+            if (filename.size() >= 4 && filename.substr(filename.size() - 4) == ".bin") {
+                strncpy(filenames[fileCount], filename.c_str(), ML_STR);
+                filenames[fileCount][ML_STR - 1] = '\0';
+                fileCount++;
+                cout << "\033[1m" << fileIndex << ") " << filename << "\033[0m" << endl;
+                fileIndex++;
+            }
+        }
+    }
+
+    closedir(dir);
+
+    if (fileCount == 0) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nFiles .bin doesn't find.\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    cout << endl;
+    int selectedIndex;
+    cout << "Input number of file to load: ";
+    cin >> selectedIndex;
+
+    if (selectedIndex < 1 || selectedIndex > fileCount) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nIncorrect number of file.\n" << endl;
+        programmState = 1;
+        return;
+    }
+
+    LoadStudentsFromBinaryFile(filenames[selectedIndex - 1]);
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;32mBINARY file with students loaded!\033[0m\n" << endl;
+    programmState = 1; 
+    }
+#elif defined(_WIN32)
+    void ListTxtFilesAndLoad() {
     fs::path currentPath = fs::current_path();
     int fileIndex = 1;
     char filenames[ML][ML_STR]; 
@@ -1408,39 +1569,8 @@ void ListTxtFilesAndLoad() {
     cout << "\033[2J\033[1;1H";
     cout << "\n\033[1;32mTXT file with students loaded!\033[0m\n" << endl;
     programmState = 1;
-}
-void LoadStudentsFromBinaryFile(const char* filename) {
-    ifstream file(filename, ios::binary);
-    if (!file.is_open()) {
-        cout << "Unc. err then try to open: " << filename << endl;
-        return;
     }
-    studentsNum = 0;
-
-    file.read(reinterpret_cast<char*>(&studentsNum), sizeof(studentsNum));
-
-    for (int i = 0; i < studentsNum; ++i) {
-        Student& student = students[i];
-
-        file.read(student.firstName, MBL);
-        file.read(student.secondName, MBL);
-        file.read(student.thirdname, MBL);
-        file.read(student.group, MBL);
-
-        file.read(reinterpret_cast<char*>(&student.joinYear), sizeof(student.joinYear));
-        file.read(reinterpret_cast<char*>(&student.course), sizeof(student.course));
-        file.read(reinterpret_cast<char*>(&student.birthdate), sizeof(student.birthdate));
-        file.read(reinterpret_cast<char*>(&student.birthmounth), sizeof(student.birthmounth));
-        file.read(reinterpret_cast<char*>(&student.birthyear), sizeof(student.birthyear));
-
-        file.read(reinterpret_cast<char*>(student.grades), sizeof(student.grades));
-
-        file.read(reinterpret_cast<char*>(&student.avgGrade), sizeof(student.avgGrade));
-    }
-
-    file.close();
-}
-void ListBinFilesAndLoad() {
+    void ListBinFilesAndLoad() {
     fs::path currentPath = fs::current_path();
     int fileIndex = 1;
     char filenames[ML][ML_STR];
@@ -1480,7 +1610,9 @@ void ListBinFilesAndLoad() {
     cout << "\033[2J\033[1;1H";
     cout << "\n\033[1;32mBINARY file with students loaded!\033[0m\n" << endl;
     programmState = 1;
-}
+    }
+#endif
+
 
 // END FUNCTIONS
 
@@ -1581,3 +1713,5 @@ void ListBinFilesAndLoad() {
     --------------------------------------------------------------------------------------------
     - ListBinFilesAndLoad - Type: void | Task: Select bin file to load | Input args: none
 */
+
+// Vladislav Dmitriev 2024 Kaluga
