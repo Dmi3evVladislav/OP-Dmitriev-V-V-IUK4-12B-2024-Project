@@ -10,17 +10,16 @@
 #include <iostream>
 #include <cstring>
 #include <fstream>
+#include <locale>
 
 using namespace std;
 
 #ifdef __linux__
-    #include <dirent.h>
-    #include <unistd.h> 
     #include <sys/stat.h>
+    #include <unistd.h>
+    #include <dirent.h>
 #elif defined(_WIN32)
-    #define byte win_byte
     #include <windows.h>
-    #undef byte
     #include <filesystem>
     namespace fs = filesystem;
 #endif
@@ -91,7 +90,7 @@ int getStudentBDate(char fullBirth[]) {
     strncpy(bDay, fullBirth, 2);
     int day = atoi(bDay);
     if (day < 1 || day > 31){
-        cout << "Incorect date (less then 1 or more then 31 )" << endl;
+        cout << "Неправильная дата (меньше 1 или больше 31)" << endl;
         return -1;
     }
     return day;
@@ -101,7 +100,7 @@ int getStudentBMounth(char fullBirth[]) {
     strncpy(bMounth, fullBirth + 3, 2);
     int mounth = atoi(bMounth);
     if (mounth < 1 || mounth > 12){
-        cout << "Incorect mounth (less then 1 or more then 12 )" << endl;
+        cout << "Неправильный месяц (меньше 1 или больше 12)" << endl;
         return -1;
     }
     return mounth;
@@ -110,8 +109,12 @@ int getStudentBYear(char fullBirth[]) {
     char bYear[5] = "";
     strncpy(bYear, fullBirth + 6, 4);
     int year = atoi(bYear);
-    if (year > 2020) {
-        cout << "Incorect year, student is too young to study in bmstu" << endl;
+    if (year > 2006) {
+        cout << "Неправильный год, студент слишком молод чтобы поступить в КФ МГТУ" << endl;
+        return -1;
+    }
+    else if (year < 1959) {
+        cout << "Неправильный год, КФ МГТУ еще не основали" << endl;
         return -1;
     }
     return year;
@@ -121,7 +124,7 @@ void UserInput(char string[]) {
     char input[ML_STR] = "";
     while (empti) {
         cin.getline(input, ML_STR);
-        if (strlen(input) == 0){
+        if (utf8_length(input) == 0){
             continue;
         }
         else {
@@ -142,19 +145,42 @@ void dateOutput (int bDay, int bMounth, int bYear) {
     cout << ".";
     cout << bYear;
 }
-void splitString(const char* input, char result[][26], int& numParts) {
-    int inputLength = utf8_length(input);
-    numParts = (inputLength + 24) / 25;
+void splitString(const char* input, char result[][256], int& numParts) {
+    int inputLength = utf8_length(input); // Длина строки в символах
+    numParts = (inputLength + 24) / 25;   // Количество частей
 
+    int byteIndex = 0; // Текущий байтовый индекс в строке
     for (int i = 0; i < numParts; ++i) {
-        int startIndex = i * 25;
-        int length = (i == numParts - 1) ? inputLength - startIndex : 25;
+        int startIndex = byteIndex; // Начальный байтовый индекс текущей части
+        int charCount = 0;          // Количество символов в текущей части
+        int endIndex = startIndex;  // Конечный байтовый индекс текущей части
 
-        strncpy(result[i], input + startIndex, length);
+        // Определяем границы текущей части
+        while (charCount < 25 && input[endIndex] != '\0') {
+            if ((input[endIndex] & 0x80) == 0) { // 1-байтовый символ
+                endIndex += 1;
+            } else if ((input[endIndex] & 0xE0) == 0xC0) { // 2-байтовый символ
+                endIndex += 2;
+            } else if ((input[endIndex] & 0xF0) == 0xE0) { // 3-байтовый символ
+                endIndex += 3;
+            } else if ((input[endIndex] & 0xF8) == 0xF0) { // 4-байтовый символ
+                endIndex += 4;
+            } else {
+                // Некорректный байт UTF-8, пропускаем его
+                endIndex += 1;
+            }
+            charCount++;
+        }
 
-        result[i][length] = '\0';
+        // Копируем символы в результат
+        
+        strncpy(result[i], input + startIndex, endIndex - startIndex);
+        result[i][endIndex - startIndex] = '\0'; // Добавляем завершающий нулевой символ
+
+        byteIndex = endIndex; // Переходим к следующей части
     }
 }
+
 void copyStudent(Student& dest, const Student& src) {
     strcpy(dest.firstName, src.firstName);
     strcpy(dest.secondName, src.secondName);
@@ -222,9 +248,7 @@ void LoadStudentsFromFileTXT (const char* filename);
 void LoadStudentsFromBinaryFile (const char* filename);
 void ListTxtFilesAndLoad ();
 void ListBinFilesAndLoad ();
-void ListFiles (const char* extension, char filenames[ML][ML_STR], int& fileCount);
-void CreateOutputFilename (const char* inputFilename, const char* extension, char* outputFilename);
-void ConvertFiles ();
+void ConvertFiles();
 
 //--------------------------------------------------------------------------------------//
 
@@ -232,7 +256,7 @@ void ConvertFiles ();
 int main() {
 
     #ifdef __linux__
-    //Логика для линукса (настройка локализации)
+        setlocale(LC_ALL, "ru_RU.UTF-8");
     #elif defined(_WIN32)
         SetConsoleCP(1251);
         SetConsoleOutputCP(1251);
@@ -240,7 +264,7 @@ int main() {
     #endif
 
     CleanCons();
-    cout << "\n\033[1;36mHello!\033[0m\n" << endl;
+    cout << "\n\033[1;36mЗдравствуйте!\033[0m\n" << endl;
     programmState = 1;
 
     do {
@@ -307,16 +331,16 @@ int GetSortMethod(int sortType) {
     case 10:
     case 11:
     case 15:
-        cout << "\033[1mSort from? ('-t' - from top to bottom, '-b' - from bottom to top):\033[0m " ;
+        cout << "\033[1mСортировать откуда? ('-t' - с начала, '-b' - с конца):\033[0m " ;
         break;
     case 12: 
-        cout << "\033[1mSort from? ('-t' - from newer year to older , '-b' - from older year to newer):\033[0m " ;
+        cout << "\033[1mСортировать откуда? ('-t' - от нового года к старому, '-b' - от старого года к новому):\033[0m " ;
         break;
     case 13:
-        cout << "\033[1mSort from? ('-t' - from the best to bad, '-b' - from bad to the best):\033[0m " ;
+        cout << "\033[1mСортировать откуда? ('-t' - от лучшего к худшему, '-b' - от худшего к лучшему):\033[0m " ;
         break;
     case 14:
-        cout << "\033[1mSort from? ('-t' - from younger to older, '-b' - from older to younger):\033[0m " ;
+        cout << "\033[1mСортировать откуда? ('-t' - от молодого к взрослому, '-b' - от зрослого к молодому):\033[0m " ;
         break;
     default:
         break;
@@ -335,52 +359,52 @@ int GetSortMethod(int sortType) {
 }
 void CloseProgramm () {
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mBye <3\033[0m\n" << endl;
+    cout << "\n\033[1;36mДосвидания <3\033[0m\n" << endl;
     render = false;
 }
 void PrintMenu () {
-    cout << "\e[1;31mMenu: \e[0m" << endl;
-    cout << "\033[1m0) /showall\033[0m - Show all students" << endl;
-    cout << "\033[1m1) /add\033[0m - Add new student" << endl;
-    cout << "\033[1m2) /edit\033[0m - Edit student entry" << endl;
-    cout << "\033[1m3) /delete\033[0m - Delete student entry" << endl;
-    cout << "\033[1m4) /best\033[0m - Show student's name and surname with best avg. grade" << endl;
-    cout << "\033[1m5) /binm\033[0m - Show student's name, surname and group born in select mounth" << endl;
-    cout << "\033[1m6) /exit\033[0m - Exit programm" << endl;
+    cout << "\e[1;31mМеню: \e[0m" << endl;
+    cout << "\033[1m0) /showall\033[0m - Показать всех студентов" << endl;
+    cout << "\033[1m1) /add\033[0m - Добавить нового студента" << endl;
+    cout << "\033[1m2) /edit\033[0m - Редактировать запись студента" << endl;
+    cout << "\033[1m3) /delete\033[0m - Удалить запись студента" << endl;
+    cout << "\033[1m4) /best\033[0m - Показать лучшего студента" << endl;
+    cout << "\033[1m5) /binm\033[0m - Показать студента родившегося в месяце" << endl;
+    cout << "\033[1m6) /exit\033[0m - Выйти из программы" << endl;
     cout << endl;
-    cout << "\033[1m18) /lbind\033[0m - \033[1;36mLoad\033[0m binary students list" << endl;
-    cout << "\033[1m19) /ltxtd\033[0m - \033[1;36mLoad\033[0m txt students list" << endl;
-    cout << "\033[1m20) /cfile\033[0m - \033[1;36mConvert\033[0m file to another extens." << endl;
+    cout << "\033[1m18) /lbind\033[0m - \033[1;36mЗагрузить\033[0m бинарный лист студентов" << endl;
+    cout << "\033[1m19) /ltxtd\033[0m - \033[1;36mЗагрузить\033[0m текстовой лист студентов" << endl;
+    cout << "\033[1m20) /convert\033[0m - \033[1;36mКонвертировать\033[0m файл" << endl;
 }
 void PrintSortMenu () {
-    cout << "\n\033[1;36mSort menu:\033[0m\n" << endl;
-    cout << "\033[1m7) /cltab\033[0m - Close all students table" << endl;
-    cout << "\033[1m8) /sbfn\033[0m - Sort students by first name" << endl;
-    cout << "\033[1m9) /sbsn\033[0m - Sort students by second name" << endl;
-    cout << "\033[1m10) /sbtn\033[0m - Sort students by third name" << endl;
-    cout << "\033[1m11) /sbgn\033[0m - Sort students by group name" << endl;
-    cout << "\033[1m12) /sbjy\033[0m - Sort students by join year" << endl;
-    cout << "\033[1m13) /sbgfs\033[0m - Sort students by grades for 4 subjects" << endl;
-    cout << "\033[1m14) /sbbd\033[0m - Sort students by birth date" << endl;
-    cout << "\033[1m15) /sbc\033[0m - Sort students by course" << endl;
+    cout << "\n\033[1;36mМеню сортировки:\033[0m\n" << endl;
+    cout << "\033[1m7) /cltab\033[0m - Закрыть таблицу студентов" << endl;
+    cout << "\033[1m8) /sbfn\033[0m - Сортировать по фамилии" << endl;
+    cout << "\033[1m9) /sbsn\033[0m - Сортировать по имени" << endl;
+    cout << "\033[1m10) /sbtn\033[0m - Сортировать по отчеству" << endl;
+    cout << "\033[1m11) /sbgn\033[0m - Сортировать по группе" << endl;
+    cout << "\033[1m12) /sbjy\033[0m - Сортировать по году поступления" << endl;
+    cout << "\033[1m13) /sbgfs\033[0m - Сортировать по среднему баллу" << endl;
+    cout << "\033[1m14) /sbbd\033[0m - Сортировать по дате рождения" << endl;
+    cout << "\033[1m15) /sbc\033[0m - Сортировать по курсу" << endl;
     cout << endl;
-    cout << "\033[1m16) /stbin\033[0m - \033[1;36mSave\033[0m list to binary" << endl;
-    cout << "\033[1m17) /sttxt\033[0m - \033[1;36mSave\033[0m list to txt" << endl;
+    cout << "\033[1m16) /stbin\033[0m - \033[1;36mСохранить\033[0m лист в бинарный файл" << endl;
+    cout << "\033[1m17) /sttxt\033[0m - \033[1;36mСохранить\033[0m лист в текстовый файл" << endl;
 }
 void PrintMonthSelect () {
-    cout << "\e[1;31mSelect mounth: \e[0m" << endl;
-    cout << "\033[1m1) January\033[0m" << endl;
-    cout << "\033[1m2) February\033[0m" << endl;
-    cout << "\033[1m3) March\033[0m" << endl;
-    cout << "\033[1m4) April\033[0m" << endl;
-    cout << "\033[1m5) May\033[0m" << endl;
-    cout << "\033[1m6) June\033[0m" << endl;
-    cout << "\033[1m7) July\033[0m" << endl;
-    cout << "\033[1m8) August\033[0m" << endl;
-    cout << "\033[1m9) September\033[0m" << endl;
-    cout << "\033[1m10) October\033[0m" << endl;
-    cout << "\033[1m11) November\033[0m" << endl;
-    cout << "\033[1m12) December\033[0m" << endl;
+    cout << "\e[1;31mВыберите месяц: \e[0m" << endl;
+    cout << "\033[1m1) Январь\033[0m" << endl;
+    cout << "\033[1m2) Февраль\033[0m" << endl;
+    cout << "\033[1m3) Март\033[0m" << endl;
+    cout << "\033[1m4) Апрель\033[0m" << endl;
+    cout << "\033[1m5) Май\033[0m" << endl;
+    cout << "\033[1m6) Июнь\033[0m" << endl;
+    cout << "\033[1m7) Июль\033[0m" << endl;
+    cout << "\033[1m8) Август\033[0m" << endl;
+    cout << "\033[1m9) Сентябрь\033[0m" << endl;
+    cout << "\033[1m10) Октябрь\033[0m" << endl;
+    cout << "\033[1m11) Ноябрь\033[0m" << endl;
+    cout << "\033[1m12) Декабрь\033[0m" << endl;
 }
 void MenuWork() {
     PrintMenu();
@@ -395,16 +419,16 @@ void MenuWork() {
     else if (strcmp(string, "/binm") == 0 or strcmp(string, "5") == 0) programmState = 6;
     else if (strcmp(string, "/lbind") == 0 or strcmp(string, "18") == 0) programmState = 12;
     else if (strcmp(string, "/ltxtd") == 0 or strcmp(string, "19") == 0) programmState = 11;
-    else if (strcmp(string, "/cfile") == 0 or strcmp(string, "20") == 0) programmState = 13;
+    else if (strcmp(string, "/convert") == 0 or strcmp(string, "20") == 0) programmState = 13;
     else {
-        cout << "Command is not found" << endl;
+        cout << "Комманда не найдена" << endl;
     }
     
 }
 void ShowAllUsers() {
     CleanCons();
     if (strlen(students[0].firstName) == 0 || strlen(students[0].secondName) == 0 || strlen(students[0].thirdname) == 0  || strlen(students[0].group) == 0){
-        cout << "Student's table is empty\n" << endl;
+        cout << "Таблица студентов пуста\n" << endl;
         MenuWork();
         return;
     }
@@ -479,7 +503,7 @@ void SortMenuWork() {
         // save list to txt
     }
     else {
-        cout << "Command is not found" << endl;
+        cout << "Комманда не найдена" << endl;
     }
     programmState = 2;
     return;
@@ -547,36 +571,74 @@ void SortStudents(Student* students, int n, int sortType, int sortMethod) {
 }
 void CreateUser(){
     CleanCons();
-    cout << "\n\033[2mClose app: Ctrl + C\033[0m\n" << endl;
+    cout << "\n\033[2mЗакрыть приложение: Ctrl + C\033[0m\n" << endl;
     Student student;
     char birthFullDate[ML_STR] = "";
 
-    cout << "\033[1mFirst Name:\033[0m ";
+    cout << "\033[1mФамилия:\033[0m ";
     UserInput(student.firstName);
     
-    cout << "\033[1mSecond Name:\033[0m ";
+    cout << "\033[1mИмя:\033[0m ";
     UserInput(student.secondName);
     
-    cout << "\033[1mThird Name:\033[0m ";
+    cout << "\033[1mОтчество:\033[0m ";
     UserInput(student.thirdname);
     
-    cout << "\033[1mGroup Name:\033[0m ";
+    cout << "\033[1mГруппа:\033[0m ";
     UserInput(student.group);
     
-    cout << "\033[1mJoin Year:\033[0m ";
-    cin >> student.joinYear;
-
-    cout << "\033[1mCourse:\033[0m ";
-    cin >> student.course;
-
-    cout << "\033[1mBirth (in format DD.MM.YYYY):\033[0m ";
-
+    cout << "\033[1mГод поступления:\033[0m ";
     bool isCorrectData = false;
+    while(!isCorrectData){
+        int joinyear = 0;
+        cin >> joinyear;
+        if (cin.fail()) {
+        cout << "Ошибка: вы ввели не целое число!" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+        }
+        if(joinyear < 1959){
+            cout << "Некоректная дата поступения" << endl;
+            continue;
+        }
+        else if(joinyear > 2024){
+            cout << "Некоректная дата поступения" << endl;
+            continue;
+        }
+        else {
+            student.joinYear = joinyear;
+            isCorrectData = true;
+        }
+    }
+
+    cout << "\033[1mКурс:\033[0m ";
+    isCorrectData = false;
+    while(!isCorrectData){
+        int course;
+        cin >> course;
+        if (cin.fail()) {
+        cout << "Ошибка: вы ввели не целое число!" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+        }
+        if(course < 1 || course > 6){
+            cout << "Неправильный курс" << endl;
+            continue;
+        }
+        else {
+            student.course = course;
+            isCorrectData = true;
+        }
+    }
+
+    cout << "\033[1mДата рождения (в формате ДД.ММ.ГГГГ):\033[0m ";
+
+    isCorrectData = false;
 
     while(!isCorrectData) {
         UserInput(birthFullDate);
         if (strlen(birthFullDate) != 10) {
-            cout << "Incorect date format, please, write in DD.MM.YYYY format" << endl;
+            cout << "Неправильный формат даты, пожалуйста, пишите в формате ДД.ММ.ГГГГ" << endl;
             continue;
         }
         if((getStudentBDate(birthFullDate) == - 1) || (getStudentBMounth(birthFullDate) == - 1) || (getStudentBYear(birthFullDate) == - 1)) continue;
@@ -586,30 +648,50 @@ void CreateUser(){
         isCorrectData = true;
     }
 
-    cout << "\033[1mGrades for 4 subjects (separated by a space):\033[0m ";
+    cout << "\033[1mОценки за 4 предмета (разделяя пробелами):\033[0m ";
     char studGR[ML_STR] = "";
-    double avgG {0};
-    cin.getline(studGR, ML_STR);
-    if (strlen(studGR) > 0) {
-        char* token = strtok(studGR, " ");
-        int count = 0;
-        while (token != nullptr && count < 4) {
-            int grade = atoi(token);
-            if (grade >= 2 && grade <= 5) {
+    double avgG = 0;
+    isCorrectData = false;
+
+    while (!isCorrectData) {
+        cin.getline(studGR, ML_STR);
+        if (strlen(studGR) > 0) {
+            char* token = strtok(studGR, " ");
+            int count = 0;
+            bool isBreak = false;
+            avgG = 0; // Сбрасываем сумму оценок перед каждым новым вводом
+
+            while (token != nullptr && count < 4) {
+                int grade = atoi(token);
+                if (grade < 2 || grade > 5) {
+                    cout << "Неправильная оценка, оценка должна быть от 2 до 5. Попробуйте снова." << endl;
+                    isBreak = true;
+                    break; // Прерываем текущий цикл, если оценка некорректна
+                }
                 student.grades[count] = grade;
                 avgG += grade;
                 ++count;
-            } else {
-                cout << "Incorect grade. Grade must be from 2 to 5." << endl;
-                break;
+                token = strtok(nullptr, " ");
             }
-            token = strtok(nullptr, " ");
+
+            if (isBreak) {
+                continue; // Если есть ошибка, начинаем ввод заново
+            }
+
+            if (count < 4) {
+                cout << "Введено недостаточно оценок. Пожалуйста, введите 4 оценки." << endl;
+                continue; // Если введено меньше 4 оценок, начинаем ввод заново
+            }
+
+            isCorrectData = true; // Если все оценки корректны и их 4, завершаем цикл
+            student.avgGrade = avgG / 4;
+        } else {
+            cout << "Вы не ввели данные. Попробуйте снова." << endl;
         }
-        student.avgGrade = avgG / 4;
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\nIs data right (\033[1;32my\033[0m/\e[1;31mn\e[0m)?\n" << endl;
+    cout << "\nВсе введено правильно (\033[1;32my\033[0m/\e[1;31mn\e[0m)?\n" << endl;
 
     TablePrintHead();
     TablePrintStudent(student.firstName, student.secondName, student.thirdname, student.group, student.joinYear, student.course, student.grades, 1, student.avgGrade, student.birthdate, student.birthmounth, student.birthyear);
@@ -635,13 +717,13 @@ void CreateUser(){
             students[studentsNum].grades[3] = student.grades[3];
             students[studentsNum].avgGrade = student.avgGrade;
             studentsNum +=1 ;
-            cout << "\n\033[1;32mUser added\033[0m\n" << endl;
+            cout << "\n\033[1;32mСтудент добавлен\033[0m\n" << endl;
             programmState = 1;
             isReady = true;
         }
         else if (strcmp(usAnsw, "n") == 0 || strcmp(usAnsw, "т") == 0) {
             cout << "\033[2J\033[1;1H";
-            cout << "\n\033[1;33mData cleared. Try again\033[0m\n" << endl;
+            cout << "\n\033[1;33mДанные очищены. Попробуйте снова\033[0m\n" << endl;
             programmState = 1;
             isReady = true;
         }
@@ -653,44 +735,44 @@ void TablePrintHead() {
         cout << "\033[2m-\033[0m";
     }
     cout << endl;
-    cout << " No \033[2m|\033[0m First Name";
-    for (int i = 0; i < 16; ++i) {
+    cout << " No \033[2m|\033[0m Фамилия";  //26
+    for (int i = 0; i < 19; ++i) {
         cout << " ";
     }
 
-    cout << "\033[2m|\033[0m Second Name";
-    for (int i = 0; i < 15; ++i) {
+    cout << "\033[2m|\033[0m Имя";
+    for (int i = 0; i < 23; ++i) {
         cout << " ";
     }
 
-    cout << "\033[2m|\033[0m Third Name";
-    for (int i = 0; i < 16; ++i) {
+    cout << "\033[2m|\033[0m Отчество";
+    for (int i = 0; i < 18; ++i) {
         cout << " ";
     }
     cout << "\033[2m|\033[0m";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 4; ++i) {
         cout << " ";
     }
-    cout << "Birth Date";
-    for (int i = 0; i < 5; ++i) {
+    cout << "Дата рожден."; //20
+    for (int i = 0; i < 4; ++i) {
         cout << " ";
     }
 
-    cout << "\033[2m|\033[0m Group Name";
-    for (int i = 0; i < 16; ++i) {
+    cout << "\033[2m|\033[0m Группа";
+    for (int i = 0; i < 20; ++i) {
         cout << " ";
     }
     cout << "\033[2m|\033[0m";
-    for (int i = 0; i < 17; ++i) {
+    for (int i = 0; i < 12; ++i) {
         cout << " ";
     }
-    cout << "Join Year ";
+    cout << "Год поступлен. ";
     cout << "\033[2m|\033[0m";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 7; ++i) {
         cout << " ";
     }
-    cout << "Course ";
-    cout << "\033[2m|\033[0m Grades for 4 subj";
+    cout << "Курс ";
+    cout << "\033[2m|\033[0m Оценка за 4 предм";
     for (int i = 0; i < 9; ++i) {
         cout << " ";
     }
@@ -705,9 +787,9 @@ void TablePrintStudent(char fname[], char sname[], char tname[], char gname[], i
         TablePrintUserStr(fname, sname, tname, gname, jyear, course, grades, number, avg, birthdate, birthmounth, birthyear);
     }
     else {
-        char splitedFname[10][26];
-        char splitedSname[10][26];
-        char splitedTname[10][26];
+        char splitedFname[10][256];
+        char splitedSname[10][256];
+        char splitedTname[10][256];
         int nPFN = 0;
         int nPSN = 0;
         int nPTN = 0;
@@ -853,15 +935,15 @@ void BestStudent() {
     }
     if (bestAvg == 0.0) {
         cout << "\033[2J\033[1;1H";
-        cout << "\nStudent's table is empty\n" << endl;
+        cout << "\nТаблица студентов пуста\n" << endl;
         programmState = 1;
         return;
     }
     else {
         cout << "\033[2J\033[1;1H";
-        cout << "Best student in table: ";
+        cout << "Лучший студент: ";
         cout << "\n" << students[bestStNum].firstName << " " << students[bestStNum].secondName << " | " << bestAvg << "\n" <<  endl;
-        cout << "Select group:" << endl;
+        cout << "Выберете группу:" << endl;
         CheckGroups();
         for (int i = 0; i < 30; ++i) {
             if(strlen(groups[i]) != 0){
@@ -872,7 +954,7 @@ void BestStudent() {
         cin >> selectedGroup;
 
         if(selectedGroup > acceptGroups || selectedGroup <= 0) {
-            cout << "Group doesn't exist" << endl;
+            cout << "Группы не существует" << endl;
         }
         else {
             filterStudentsByGroup(students, 30, studentsInGroup, 40, groups[selectedGroup-1]);
@@ -886,7 +968,7 @@ void BestStudent() {
                 }
             }
             cout << "\033[2J\033[1;1H";
-            cout << "\nBest student in a group " << groups[selectedGroup-1] << ": " << studentsInGroup[bestStNum].firstName << " " << studentsInGroup[bestStNum].secondName << " | " << bestAvg << "\n" << endl; 
+            cout << "\nЛучший студент в группе " << groups[selectedGroup-1] << ": " << studentsInGroup[bestStNum].firstName << " " << studentsInGroup[bestStNum].secondName << " | " << bestAvg << "\n" << endl; 
         }
         programmState = 1;
     }
@@ -895,7 +977,7 @@ void BornInMounth() {
     cout << "\033[2J\033[1;1H";
 
     if (strlen(students[0].firstName) == 0 || strlen(students[0].secondName) == 0 || strlen(students[0].thirdname) == 0  || strlen(students[0].group) == 0){
-        cout << "\nStudent's table is empty\n" << endl;
+        cout << "\nТаблица студентов пуста\n" << endl;
         programmState = 1;
         return;
     }
@@ -903,43 +985,43 @@ void BornInMounth() {
     PrintMonthSelect();
     char string[ML_STR] = "";
     UserInput(string);
-    if (strcmp(string, "January") == 0 or strcmp(string, "1") == 0) {
+    if (strcmp(string, "Январь") == 0 or strcmp(string, "1") == 0) {
         MounthSort(1, students, 30);
     }
-    else if (strcmp(string, "February") == 0 or strcmp(string, "2") == 0) {
+    else if (strcmp(string, "Февраль") == 0 or strcmp(string, "2") == 0) {
         MounthSort(2, students, 30);
     }
-    else if (strcmp(string, "March") == 0 or strcmp(string, "3") == 0) {
+    else if (strcmp(string, "Март") == 0 or strcmp(string, "3") == 0) {
         MounthSort(3, students, 30);
     }
-    else if (strcmp(string, "April") == 0 or strcmp(string, "4") == 0) {
+    else if (strcmp(string, "Апрель") == 0 or strcmp(string, "4") == 0) {
         MounthSort(4, students, 30);
     }
-    else if (strcmp(string, "May") == 0 or strcmp(string, "5") == 0) {
+    else if (strcmp(string, "Май") == 0 or strcmp(string, "5") == 0) {
         MounthSort(5, students, 30);
     }
-    else if (strcmp(string, "June") == 0 or strcmp(string, "6") == 0) {
+    else if (strcmp(string, "Июнь") == 0 or strcmp(string, "6") == 0) {
         MounthSort(6, students, 30);
     }
-    else if (strcmp(string, "July") == 0 or strcmp(string, "7") == 0) {
+    else if (strcmp(string, "Июль") == 0 or strcmp(string, "7") == 0) {
         MounthSort(7, students, 30);
     }
-    else if (strcmp(string, "August") == 0 or strcmp(string, "8") == 0) {
+    else if (strcmp(string, "Август") == 0 or strcmp(string, "8") == 0) {
         MounthSort(8, students, 30);
     }
-    else if (strcmp(string, "September") == 0 or strcmp(string, "9") == 0) {
+    else if (strcmp(string, "Сентябрь") == 0 or strcmp(string, "9") == 0) {
         MounthSort(9, students, 30);
     }
-    else if (strcmp(string, "October") == 0 or strcmp(string, "10") == 0) {
+    else if (strcmp(string, "Октябрь") == 0 or strcmp(string, "10") == 0) {
         MounthSort(10, students, 30);
     }
-    else if (strcmp(string, "November") == 0 or strcmp(string, "11") == 0) {
+    else if (strcmp(string, "Ноябрь") == 0 or strcmp(string, "11") == 0) {
         MounthSort(11, students, 30);
     }
-    else if (strcmp(string, "December") == 0 or strcmp(string, "12") == 0) {
+    else if (strcmp(string, "Декабрь") == 0 or strcmp(string, "12") == 0) {
         MounthSort(12, students, 30);
     }
-    else cout << "Incorect mounth" << endl;
+    else cout << "Некоректный месяц" << endl;
 }
 void BubbleSortByDate(Student students[], int size) {
     for (int i = 0; i < size - 1; ++i) {
@@ -964,64 +1046,22 @@ void MounthSort(int month, Student students[], int size) {
 
     if(strlen(filteredStudents[0].firstName) == 0){
         cout << "\033[2J\033[1;1H";
-        cout << "\nStudent's born in this month, dsnt exist\n" << endl;
+        cout << "\nСтуденты, рожденные в этот месяц, отсутствуют\n" << endl;
         programmState = 1;
         return;
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << endl;
-    for (int i = 0; i < 95; ++i) {
-        cout << "\033[2m-\033[0m";
-    }
-    cout << endl;
-    cout << "\033[2m|\033[0m First name";
-    for (int i = 0; i < 16; ++i) {
-            cout << " ";
-        }
-    cout << "\033[2m|\033[0m Second name";
-    for (int i = 0; i < 15; ++i) {
-            cout << " ";
-        }
-    cout << "\033[2m|\033[0m Group";
-    for (int i = 0; i < 10; ++i) {
-            cout << " ";
-        }
-    cout << "\033[2m|\033[0m     Birth date     \033[2m|\033[0m";
-    cout << endl;
-    for (int i = 0; i < 95; ++i) {
-        cout << "\033[2m-\033[0m";
-    }
-    cout << endl;
 
     for (int i = 0; i < filteredSize; ++i) {
         int len_name = 26-utf8_length(filteredStudents[i].firstName);
         int len_sname = 26-utf8_length(filteredStudents[i].secondName);
         int len_gr = 15-utf8_length(filteredStudents[i].group);
-        // cout << len_name << " " << len_sname << " " << len_gr << endl;
-        if(len_name == 26 || len_sname == 26 || len_gr == 15){
-           break;
-        }
-
-        cout << "\033[2m|\033[0m " << filteredStudents[i].firstName;
-        for (int i = 0; i < len_name; ++i) {
-            cout << " ";
-        }
-        cout << "\033[2m|\033[0m " << filteredStudents[i].secondName;
-        for (int i = 0; i < len_sname; ++i) {
-            cout << " ";
-        }
-        cout << "\033[2m|\033[0m " << filteredStudents[i].group;
-        for (int i = 0; i < len_gr; ++i) {
-            cout << " ";
-        }
-        cout << "\033[2m|\033[0m     ";
+        cout << "Фамилия: " << filteredStudents[i].firstName << " Имя: " << filteredStudents[i].secondName << " Группа: " << filteredStudents[i].group << " Родился: ";
         dateOutput(filteredStudents[i].birthdate, filteredStudents[i].birthmounth, filteredStudents[i].birthyear);
-        cout << "     \033[2m|\033[0m" << endl;
+        cout << endl;
+        
 
-    }
-    for (int i = 0; i < 95; ++i) {
-        cout << "\033[2m-\033[0m";
     }
     cout << "\n" << endl;
     programmState = 1;
@@ -1033,7 +1073,7 @@ void EditStudent() {
     int numberUserInp {0};
     int studentIndex {0};
     if (strlen(students[0].firstName) == 0 || strlen(students[0].secondName) == 0 || strlen(students[0].thirdname) == 0  || strlen(students[0].group) == 0){
-        cout << "Student's table is empty\n" << endl;
+        cout << "Таблица студентов пуста\n" << endl;
         programmState = 1;
         return;
     }
@@ -1043,13 +1083,13 @@ void EditStudent() {
         if (strlen(students[i].firstName) == 0 || strlen(students[i].secondName) == 0 || strlen(students[i].thirdname) == 0  || strlen(students[i].group) == 0) break;
         TablePrintStudent(students[i].firstName, students[i].secondName, students[i].thirdname, students[i].group, students[i].joinYear, students[i].course, students[i].grades, i+1, students[i].avgGrade, students[i].birthdate, students[i].birthmounth, students[i].birthyear);
     }
-    cout << "\nSelect number of student to edit: ";
+    cout << "\nВыберете номер студента для редактирования: ";
     cin >> numberUserInp;
     cin.ignore();
     cout << endl;
 
     if(numberUserInp <= 0 || numberUserInp > 30) {
-        cout << "Incorect student number\n" << endl;
+        cout << "Некоректный номер студента\n" << endl;
         programmState = 1;
         return;
     }
@@ -1057,7 +1097,7 @@ void EditStudent() {
     else studentIndex = numberUserInp - 1;
 
     if (strlen(students[studentIndex].firstName) == 0) {
-        cout << "Student with this number dsnt exist\n" << endl;
+        cout << "Студент с таким номером не существует\n" << endl;
         programmState = 1;
         return;
     }
@@ -1067,49 +1107,54 @@ void EditStudent() {
     cout << endl;
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "First name: " << endl;
-    cout << "Old value: " << student.firstName << endl;
-    cout << "New value: ";
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Фамилия: " << endl;
+    cout << "Старое значение: " << student.firstName << endl;
+    cout << "Новое значение: ";
     cin.getline(temp, ML_STR);
     if (strlen(temp) > 0) {
         strcpy(student.firstName, temp);
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Second name: " << endl;
-    cout << "Old value: " << student.secondName << endl;
-    cout << "New value: ";
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Имя: " << endl;
+    cout << "Старое значение: " << student.secondName << endl;
+    cout << "Новое значение: ";
     cin.getline(temp, ML_STR);
     if (strlen(temp) > 0) {
         strcpy(student.secondName, temp);
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Third name: " << endl;
-    cout << "Old value: " << student.thirdname << endl;
-    cout << "New value: ";
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Отчество: " << endl;
+    cout << "Старое значение: " << student.thirdname << endl;
+    cout << "Новое значение: ";
     cin.getline(temp, ML_STR);
     if (strlen(temp) > 0) {
         strcpy(student.thirdname, temp);
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Birth date: " << endl;
-    cout << "Old value: ";
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Дата рождения: " << endl;
+    cout << "Старое значение: ";
     dateOutput (student.birthdate, student.birthmounth, student.birthyear); 
     cout << endl;
-    cout << "New value (DD.MM.YYYY format): ";
+    cout << "Новое значение (в формате ДД.ММ.ГГГГ): ";
 
     bool isCorrectData = false;
     while(!isCorrectData) {
         cin.getline(temp, ML_STR);
+        if (cin.fail()) {
+        cout << "Ошибка: вы ввели не целое число!" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+        }
         if (strlen(temp) > 0) {
             if (strlen(temp) != 10) {
-                cout << "Incorect date format, please, write in DD.MM.YYYY format" << endl;
+                cout << "Неправильный формат даты, используйте формат ДД.ММ.ГГГГ" << endl;
                 continue;
             }
             if((getStudentBDate(temp) == - 1) || (getStudentBMounth(temp) == - 1) || (getStudentBYear(temp) == - 1)) continue;
@@ -1122,10 +1167,10 @@ void EditStudent() {
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Group: " << endl;
-    cout << "Old value: " << student.group << endl;
-    cout << "New value: ";
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Группа: " << endl;
+    cout << "Старое значение: " << student.group << endl;
+    cout << "Новое значение: ";
     cin.getline(temp, ML_STR);
     if (strlen(temp) > 0) {
         strncpy(student.group, temp, 25);
@@ -1133,59 +1178,122 @@ void EditStudent() {
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Join year: " << endl;
-    cout << "Old value: " << student.joinYear << endl;
-    cout << "New value: ";
-    cin.getline(temp, ML_STR);
-    if (strlen(temp) > 0) {
-        student.joinYear = atoi(temp);
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Год поступления: " << endl;
+    cout << "Старое значение: " << student.joinYear << endl;
+    cout << "Новое значение: ";
+    isCorrectData = false;
+    while(!isCorrectData){
+        int joinyear;
+        cin.getline(temp, ML_STR);
+        if (cin.fail()) {
+        cout << "Ошибка: вы ввели не целое число!" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+        }
+        if (strlen(temp) > 0) {
+            joinyear = atoi(temp);
+            if(joinyear < 1959){
+            cout << "Некоректная дата поступения" << endl;
+            continue;
+        }
+            else if(joinyear > 2024){
+                cout << "Некоректная дата поступения" << endl;
+                continue;
+            }
+            else {
+                student.joinYear = joinyear;
+                isCorrectData = true;
+            }
+        }
+        else {
+            isCorrectData = true;
+        }
+        
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Course: " << endl;
-    cout << "Old value: " << student.course << endl;
-    cout << "New value: ";
-    cin.getline(temp, ML_STR);
-    if (strlen(temp) > 0) {
-        student.course = atoi(temp);
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Курс: " << endl;
+    cout << "Старое значение: " << student.course << endl;
+    cout << "Новое значение: ";
+    isCorrectData = false;
+    while(!isCorrectData){
+        int course;
+        cin.getline(temp, ML_STR);
+        if (cin.fail()) {
+        cout << "Ошибка: вы ввели не целое число!" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+        }
+        if (strlen(temp) > 0) {
+            course = atoi(temp);
+            if(course < 1 || course > 6){
+            cout << "Неправильный курс" << endl;
+            continue;
+        }
+        else {
+            student.course = course;
+            isCorrectData = true;
+        }
+        }
+        else {
+            isCorrectData = true;
+        }
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[2mEdit value and press Enter, to save new value (press Enter to skip value)\033[0m\n" << endl;
-    cout << "Grades for 4 subj: " << endl;
-    cout << "Old value: ";
+    cout << "\n\033[2mИзмените значение и нажмите Enter, чтобы сохранить значение (нажмите Enter чтобы пропустить)\033[0m\n" << endl;
+    cout << "Оценки за 4 предмета: " << endl;
+    cout << "Старое значение: ";
     for (int i = 0; i < 4; ++i) {
         cout << student.grades[i] << " ";
     }
     cout << endl;
-    cout << "New value (with spase): ";
-    cin.getline(temp, ML_STR);
-    if (strlen(temp) > 0) {
-        char* token = strtok(temp, " ");
-        int count = 0;
-        while (token != nullptr && count < 4) {
-            int grade = atoi(token);
-            if (grade >= 2 && grade <= 5) {
+    cout << "Новое значение (через пробелы): ";
+    char studGR[ML_STR] = "";
+    double avgG = 0;
+    isCorrectData = false;
+
+    while (!isCorrectData) {
+        cin.getline(studGR, ML_STR);
+        if (strlen(studGR) > 0) {
+            char* token = strtok(studGR, " ");
+            int count = 0;
+            bool isBreak = false;
+            avgG = 0; // Сбрасываем сумму оценок перед каждым новым вводом
+
+            while (token != nullptr && count < 4) {
+                int grade = atoi(token);
+                if (grade < 2 || grade > 5) {
+                    cout << "Неправильная оценка, оценка должна быть от 2 до 5. Попробуйте снова." << endl;
+                    isBreak = true;
+                    break; // Прерываем текущий цикл, если оценка некорректна
+                }
                 student.grades[count] = grade;
+                avgG += grade;
                 ++count;
-            } else {
-                cout << "Incorect grade. Grade must be from 2 to 5." << endl;
-                break;
+                token = strtok(nullptr, " ");
             }
-            token = strtok(nullptr, " ");
+
+            if (isBreak) {
+                continue; // Если есть ошибка, начинаем ввод заново
+            }
+
+            if (count < 4) {
+                cout << "Введено недостаточно оценок. Пожалуйста, введите 4 оценки." << endl;
+                continue; // Если введено меньше 4 оценок, начинаем ввод заново
+            }
+
+            isCorrectData = true; // Если все оценки корректны и их 4, завершаем цикл
+            student.avgGrade = avgG / 4;
+        } else {
+            isCorrectData = true;
         }
     }
 
-    int sum = 0;
-    for (int i = 0; i < 4; ++i) {
-        sum += student.grades[i];
-    }
-    student.avgGrade = static_cast<double>(sum) / 4;
-
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mStudent edited\033[0m\n" << endl;
+    cout << "\n\033[1;32mСтудент изменен\033[0m\n" << endl;
     programmState = 1;
     return;
 
@@ -1197,7 +1305,7 @@ void DeleteStudent() {
     int numberUserInp {0};
     int studentIndex {0};
     if (strlen(students[0].firstName) == 0 || strlen(students[0].secondName) == 0 || strlen(students[0].thirdname) == 0  || strlen(students[0].group) == 0){
-        cout << "Student's table is empty\n" << endl;
+        cout << "Таблица студентов пуста\n" << endl;
         programmState = 1;
         return;
     }
@@ -1207,20 +1315,20 @@ void DeleteStudent() {
         if (strlen(students[i].firstName) == 0 || strlen(students[i].secondName) == 0 || strlen(students[i].thirdname) == 0  || strlen(students[i].group) == 0) break;
         TablePrintStudent(students[i].firstName, students[i].secondName, students[i].thirdname, students[i].group, students[i].joinYear, students[i].course, students[i].grades, i+1, students[i].avgGrade, students[i].birthdate, students[i].birthmounth, students[i].birthyear);
     }
-    cout << "\nSelect number of student to delete: ";
+    cout << "\nВыберете номер студента для удаления записи: ";
     cin >> numberUserInp;
     cin.ignore();
     cout << endl;
 
     if(numberUserInp <= 0 || numberUserInp > 30) {
-        cout << "Incorect student number\n" << endl;
+        cout << "Неправельный номер студента\n" << endl;
         programmState = 1;
         return;
     }
     else studentIndex = numberUserInp - 1;
 
     if (strlen(students[studentIndex].firstName) == 0) {
-        cout << "Student with this number dsnt exist\n" << endl;
+        cout << "Студент с таким номером отсутствует\n" << endl;
         programmState = 1;
         return;
     }
@@ -1233,7 +1341,7 @@ void DeleteStudent() {
     studentsNum -= 1;
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mStudent deleted\033[0m\n" << endl;
+    cout << "\n\033[1;32mСтудент удален\033[0m\n" << endl;
     programmState = 1;
 }
 void SaveListToTxt() {
@@ -1270,7 +1378,7 @@ void SaveListToTxt() {
 
     file.close();
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mTXT file with students saved!\033[0m\n" << endl;
+    cout << "\n\033[1;32mTXT файл с студентами сохранен!\033[0m\n" << endl;
     programmState = 1;
     return;
 }
@@ -1311,7 +1419,7 @@ void SaveListToBinary () {
     }
     file.close();
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mBINARY file with students saved!\033[0m\n" << endl;
+    cout << "\n\033[1;32mBINARY файл со студентами сохранен!\033[0m\n" << endl;
     programmState = 1;
     return;
 }
@@ -1328,7 +1436,7 @@ void LoadStudentsFromFileTXT(const char* filename) {
     char line[ML_STR];
     while (file.getline(line, ML_STR)) {
         if (studentsNum >= ML) {
-            cout << "To many students." << endl;
+            cout << "Слишком много студентов." << endl;
             break;
         }
         Student& student = students[studentsNum++];
@@ -1385,6 +1493,114 @@ void LoadStudentsFromFileTXT(const char* filename) {
 
     file.close();
 }
+#ifdef __linux__
+// Реализация для Linux (без std::filesystem)
+void ListTxtFilesAndLoad() {
+    char currentPath[ML_STR];
+    if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
+        cerr << "Ошибка открытия директории." << endl;
+        return;
+    }
+
+    int fileIndex = 1;
+    char filenames[ML][ML_STR];
+    int fileCount = 0;
+
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;36mTXT файлы в директории:\033[0m\n" << endl;
+
+    DIR* dir = opendir(currentPath);
+    if (!dir) {
+        cerr << "Ошибка при открытии файла: " << currentPath << endl;
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type == DT_REG) { // Проверяем, является ли это обычным файлом
+            string filename = entry->d_name;
+            if (filename.size() >= 4 && filename.substr(filename.size() - 4) == ".txt") {
+                strncpy(filenames[fileCount], filename.c_str(), ML_STR);
+                filenames[fileCount][ML_STR - 1] = '\0'; // Убедимся, что строка завершена
+                fileCount++;
+                cout << "\033[1m" << fileIndex << ") " << filename << "\033[0m" << endl;
+                fileIndex++;
+            }
+        }
+    }
+
+    closedir(dir);
+
+    if (fileCount == 0) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nФайлы .txt не найдены.\n" << endl;
+        programmState = 1; // Закомментировано, так как неизвестно, что это
+        return;
+    }
+
+    cout << endl;
+    int selectedIndex;
+    cout << "Введите номер файла: ";
+    cin >> selectedIndex;
+
+    if (selectedIndex < 1 || selectedIndex > fileCount) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nНеправильный номер файла.\n" << endl;
+        programmState = 1; // Закомментировано, так как неизвестно, что это
+        return;
+    }
+
+    LoadStudentsFromFileTXT(filenames[selectedIndex - 1]); // Закомментировано, так как неизвестно, что это
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;32mTXT файл со студентами загружен!\033[0m\n" << endl;
+    programmState = 1; // Закомментировано, так как неизвестно, что это
+}
+#elif defined(_WIN32)
+// Реализация для Windows (с использованием std::filesystem)
+void ListTxtFilesAndLoad() {
+    namespace fs = std::filesystem;
+    fs::path currentPath = fs::current_path();
+    int fileIndex = 1;
+    char filenames[ML][ML_STR];
+    int fileCount = 0;
+
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;36mTXT файлы в дирректории:\033[0m\n" << endl;
+    for (const auto& entry : fs::directory_iterator(currentPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".txt") {
+            strncpy(filenames[fileCount], entry.path().filename().string().c_str(), ML_STR);
+            filenames[fileCount][ML_STR - 1] = '\0';
+            fileCount++;
+            cout << "\033[1m" << fileIndex << ") " << entry.path().filename().string() << "\033[0m" << endl;
+            fileIndex++;
+        }
+    }
+
+    if (fileCount == 0) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nФайлы .txt не найдены.\n" << endl;
+        programmState = 1; // Закомментировано, так как неизвестно, что это
+        return;
+    }
+
+    cout << endl;
+    int selectedIndex;
+    cout << "Input number of file to load: ";
+    cin >> selectedIndex;
+
+    if (selectedIndex < 1 || selectedIndex > fileCount) {
+        cout << "\033[2J\033[1;1H";
+        cout << "\nНекоректный номер файла.\n" << endl;
+        programmState = 1; // Закомментировано, так как неизвестно, что это
+        return;
+    }
+
+    LoadStudentsFromFileTXT(filenames[selectedIndex - 1]); // Закомментировано, так как неизвестно, что это
+    cout << "\033[2J\033[1;1H";
+    cout << "\n\033[1;32mTXT файл с студентами загружен!\033[0m\n" << endl;
+    programmState = 1; // Закомментировано, так как неизвестно, что это
+}
+#endif
 void LoadStudentsFromBinaryFile(const char* filename) {
     ifstream file(filename, ios::binary);
     if (!file.is_open()) {
@@ -1416,15 +1632,12 @@ void LoadStudentsFromBinaryFile(const char* filename) {
 
     file.close();
 }
-
-
 #ifdef __linux__
-    void ListTxtFilesAndLoad() {
+// Реализация для Linux (без std::filesystem)
+void ListBinFilesAndLoad() {
     char currentPath[ML_STR];
     if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFailed to get current directory.\n" << endl;
-        programmState = 1;
+        cerr << "Failed to get current directory." << endl;
         return;
     }
 
@@ -1433,87 +1646,21 @@ void LoadStudentsFromBinaryFile(const char* filename) {
     int fileCount = 0;
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mTXT files in dir:\033[0m\n" << endl;
+    cout << "\n\033[1;36mBINARY файлы в дирректории:\033[0m\n" << endl;
 
     DIR* dir = opendir(currentPath);
     if (!dir) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFailed to open directory: " << currentPath << "\n" << endl;
-        programmState = 1;
+        cerr << "Ошибка при открытии директории: " << currentPath << endl;
         return;
     }
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
-        if (entry->d_type == DT_REG) {
-            string filename = entry->d_name;
-            if (filename.size() >= 4 && filename.substr(filename.size() - 4) == ".txt") {
-                strncpy(filenames[fileCount], filename.c_str(), ML_STR);
-                filenames[fileCount][ML_STR - 1] = '\0';
-                fileCount++;
-                cout << "\033[1m" << fileIndex << ") " << filename << "\033[0m" << endl;
-                fileIndex++;
-            }
-        }
-    }
-
-    closedir(dir);
-
-    if (fileCount == 0) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFiles .txt doesn't find.\n" << endl;
-        programmState = 1;
-        return;
-    }
-
-    cout << endl;
-    int selectedIndex;
-    cout << "Input number of file to load: ";
-    cin >> selectedIndex;
-
-    if (selectedIndex < 1 || selectedIndex > fileCount) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nIncorrect number of file.\n" << endl;
-        programmState = 1;
-        return;
-    }
-
-    LoadStudentsFromFileTXT(filenames[selectedIndex - 1]);
-    cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mTXT file with students loaded!\033[0m\n" << endl;
-    programmState = 1;
-    }
-    void ListBinFilesAndLoad() {
-    char currentPath[ML_STR];
-    if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFailed to get current directory.\n" << endl;
-        programmState = 1;
-        return;
-    }
-
-    int fileIndex = 1;
-    char filenames[ML][ML_STR];
-    int fileCount = 0;
-
-    cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mBINARY files in dir:\033[0m\n" << endl;
-
-    DIR* dir = opendir(currentPath);
-    if (!dir) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFailed to open directory: " << currentPath << "\n" << endl;
-        programmState = 1;
-        return;
-    }
-
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != nullptr) {
-        if (entry->d_type == DT_REG) {
+        if (entry->d_type == DT_REG) { // Проверяем, является ли это обычным файлом
             string filename = entry->d_name;
             if (filename.size() >= 4 && filename.substr(filename.size() - 4) == ".bin") {
                 strncpy(filenames[fileCount], filename.c_str(), ML_STR);
-                filenames[fileCount][ML_STR - 1] = '\0';
+                filenames[fileCount][ML_STR - 1] = '\0'; // Убедимся, что строка завершена
                 fileCount++;
                 cout << "\033[1m" << fileIndex << ") " << filename << "\033[0m" << endl;
                 fileIndex++;
@@ -1525,76 +1672,36 @@ void LoadStudentsFromBinaryFile(const char* filename) {
 
     if (fileCount == 0) {
         cout << "\033[2J\033[1;1H";
-        cout << "\nFiles .bin doesn't find.\n" << endl;
-        programmState = 1;
+        cout << "\nФайлы .bin не найдены.\n" << endl;
+        programmState = 1; // Закомментировано, так как неизвестно, что это
         return;
     }
 
     cout << endl;
     int selectedIndex;
-    cout << "Input number of file to load: ";
+    cout << "Введите номер файла: ";
     cin >> selectedIndex;
 
     if (selectedIndex < 1 || selectedIndex > fileCount) {
         cout << "\033[2J\033[1;1H";
-        cout << "\nIncorrect number of file.\n" << endl;
-        programmState = 1;
+        cout << "\nНеправильный номер файла.\n" << endl;
+        programmState = 1; // Закомментировано, так как неизвестно, что это
         return;
     }
 
-    LoadStudentsFromBinaryFile(filenames[selectedIndex - 1]);
+    LoadStudentsFromBinaryFile(filenames[selectedIndex - 1]); // Закомментировано, так как неизвестно, что это
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mBINARY file with students loaded!\033[0m\n" << endl;
-    programmState = 1; 
-    }
+    cout << "\n\033[1;32mBINARY файл со студентами загружен!\033[0m\n" << endl;
+    programmState = 1; // Закомментировано, так как неизвестно, что это
+}
 #elif defined(_WIN32)
-    void ListTxtFilesAndLoad() {
-    fs::path currentPath = fs::current_path();
-    int fileIndex = 1;
-    char filenames[ML][ML_STR]; 
-    int fileCount = 0;
-
-    cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mTXT files in dir:\033[0m\n" << endl;
-    for (const auto& entry : fs::directory_iterator(currentPath)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".txt") {
-            strncpy(filenames[fileCount], entry.path().filename().string().c_str(), ML_STR);
-            filenames[fileCount][ML_STR - 1] = '\0';
-            fileCount++;
-            cout << "\033[1m" << fileIndex << ") " << entry.path().filename().string() << "\033[0m" << endl;
-            fileIndex++;
-        }
-    }
-
-    if (fileCount == 0) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFiles .txt doesn't find.\n" << endl;
-        programmState = 1;
-        return;
-    }
-    cout << endl;
-    int selectedIndex;
-    cout << "Input number of file to load: ";
-    cin >> selectedIndex;
-
-    if (selectedIndex < 1 || selectedIndex > fileCount) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nIncorect number of file.\n" << endl;
-        programmState = 1;
-        return;
-    }
-    LoadStudentsFromFileTXT(filenames[selectedIndex - 1]);
-    cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mTXT file with students loaded!\033[0m\n" << endl;
-    programmState = 1;
-    }
-    void ListBinFilesAndLoad() {
+void ListBinFilesAndLoad() {
     fs::path currentPath = fs::current_path();
     int fileIndex = 1;
     char filenames[ML][ML_STR];
     int fileCount = 0;
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mBINARY files in dir:\033[0m\n" << endl;
+    cout << "\n\033[1;36mBINARY файлы в дирректории:\033[0m\n" << endl;
     for (const auto& entry : fs::directory_iterator(currentPath)) {
         if (entry.is_regular_file() && entry.path().extension() == ".bin") {
             strncpy(filenames[fileCount], entry.path().filename().string().c_str(), ML_STR);
@@ -1607,55 +1714,50 @@ void LoadStudentsFromBinaryFile(const char* filename) {
 
     if (fileCount == 0) {
         cout << "\033[2J\033[1;1H";
-        cout << "\nFiles .bin doesn't find.\n" << endl;
+        cout << "\nФайлы .bin не найдены.\n" << endl;
         programmState = 1;
         return;
     }
 
     cout << endl;
     int selectedIndex;
-    cout << "Input number of file to load: ";
+    cout << "Ввыедите номер файла: ";
     cin >> selectedIndex;
 
     if (selectedIndex < 1 || selectedIndex > fileCount) {
         cout << "\033[2J\033[1;1H";
-        cout << "\nIncorect number of file.\n" << endl;
+        cout << "\nНекоректный номер файла.\n" << endl;
         programmState = 1;
         return;
     }
 
     LoadStudentsFromBinaryFile(filenames[selectedIndex - 1]);
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mBINARY file with students loaded!\033[0m\n" << endl;
+    cout << "\n\033[1;32mBINARY файл со студентами загружен!\033[0m\n" << endl;
     programmState = 1;
-    }
+}
 #endif
 
-void ListFiles(const char* extension, char filenames[ML][ML_STR], int& fileCount) {
+void ListFiles(const string& extension, char filenames[ML][ML_STR], int& fileCount) {
 #ifdef __linux__
     char currentPath[ML_STR];
     if (getcwd(currentPath, sizeof(currentPath)) == nullptr) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFailed to get current directory.\n" << endl;
-        programmState = 1;
+        cerr << "Ошибка получения текущего репозитория." << endl;
         return;
     }
 
     DIR* dir = opendir(currentPath);
     if (!dir) {
-        cout << "\033[2J\033[1;1H";
-        cout << "\nFailed to open directory: " << currentPath << "\n"<< endl;
-        programmState = 1;
+        cerr << "Ошибка открытия дирректории: " << currentPath << endl;
         return;
     }
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != nullptr) {
-        if (entry->d_type == DT_REG) {
-            char* filename = entry->d_name;
-            if (strlen(filename) >= strlen(extension) &&
-                strcmp(filename + strlen(filename) - strlen(extension), extension) == 0) {
-                strncpy(filenames[fileCount], filename, ML_STR);
+        if (entry->d_type == DT_REG) { 
+            string filename = entry->d_name;
+            if (filename.size() >= extension.size() && filename.substr(filename.size() - extension.size()) == extension) {
+                strncpy(filenames[fileCount], filename.c_str(), ML_STR);
                 filenames[fileCount][ML_STR - 1] = '\0';
                 fileCount++;
             }
@@ -1663,6 +1765,7 @@ void ListFiles(const char* extension, char filenames[ML][ML_STR], int& fileCount
     }
     closedir(dir);
 #elif defined(_WIN32)
+    namespace fs = std::filesystem;
     fs::path currentPath = fs::current_path();
     for (const auto& entry : fs::directory_iterator(currentPath)) {
         if (entry.is_regular_file() && entry.path().extension() == extension) {
@@ -1673,79 +1776,65 @@ void ListFiles(const char* extension, char filenames[ML][ML_STR], int& fileCount
     }
 #endif
 }
-void CreateOutputFilename(const char* inputFilename, const char* extension, char* outputFilename) {
-    int len = strlen(inputFilename);
-    int extLen = strlen(extension);
 
-    strncpy(outputFilename, inputFilename, len - extLen);
-    outputFilename[len - extLen] = '\0';
-    strcat(outputFilename, extension);
-}
+// Функция конвертации файлов
 void ConvertFiles() {
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mChoose conversion type:\033[0m\n" << endl;
-    cout << "1) TXT to BIN" << endl;
-    cout << "2) BIN to TXT" << endl;
-    cout << "Enter your choice: ";
+    cout << "\n\033[1;36mВыберите тип конвертации:\033[0m\n" << endl;
+    cout << "1) TXT в BIN" << endl;
+    cout << "2) BIN в TXT" << endl;
+    cout << "Введите тип: ";
 
     int choice;
     cin >> choice;
 
     if (choice != 1 && choice != 2) {
         cout << "\033[2J\033[1;1H";
-        cout << "\n\033[1;31mInvalid choice.\033[0m\n" << endl;
+        cout << "\n\033[1;31mНеправильный ввод.\033[0m\n" << endl;
         return;
     }
 
     char filenames[ML][ML_STR];
     int fileCount = 0;
-    const char* extension = (choice == 1) ? ".txt" : ".bin";
+    string extension = (choice == 1) ? ".txt" : ".bin";
 
     ListFiles(extension, filenames, fileCount);
 
     if (fileCount == 0) {
         cout << "\033[2J\033[1;1H";
-        cout << "\n\033[1;31mNo " << extension << " files found.\033[0m\n" << endl;
-        programmState = 1;
+        cout << "\n\033[1;31mNo " << extension << " файл не найден.\033[0m\n" << endl;
         return;
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;36mAvailable files:\033[0m\n" << endl;
+    cout << "\n\033[1;36mДоступные файлы:\033[0m\n" << endl;
     for (int i = 0; i < fileCount; ++i) {
         cout << i + 1 << ") " << filenames[i] << endl;
     }
 
-    cout << "\nEnter the number of the file to convert: ";
+    cout << "\nВведите номер файла для конвертации: ";
     int selectedIndex;
     cin >> selectedIndex;
 
     if (selectedIndex < 1 || selectedIndex > fileCount) {
         cout << "\033[2J\033[1;1H";
-        cout << "\n\033[1;31mInvalid file number.\033[0m\n" << endl;
-        programmState = 1;
+        cout << "\n\033[1;31mНеправильный номер файла.\033[0m\n" << endl;
         return;
     }
 
-    char inputFilename[ML_STR];
-    strncpy(inputFilename, filenames[selectedIndex - 1], ML_STR);
-    inputFilename[ML_STR - 1] = '\0';
-
-    char outputFilename[ML_STR];
-    const char* newExtension = (choice == 1) ? ".bin" : ".txt";
-    CreateOutputFilename(inputFilename, newExtension, outputFilename);
+    string inputFilename = filenames[selectedIndex - 1];
+    string outputFilename = inputFilename.substr(0, inputFilename.size() - extension.size()) + ((choice == 1) ? ".bin" : ".txt");
 
     if (choice == 1) {
-        LoadStudentsFromFileTXT(inputFilename);
+        LoadStudentsFromFileTXT(inputFilename.c_str());
         SaveListToBinary();
     } else {
-        LoadStudentsFromBinaryFile(inputFilename);
+        LoadStudentsFromBinaryFile(inputFilename.c_str());
         SaveListToTxt();
     }
 
     cout << "\033[2J\033[1;1H";
-    cout << "\n\033[1;32mFile converted successfully to " << outputFilename << "!\033[0m\n" << endl;
-    programmState = 1;
+    cout << "\n\033[1;32mФайл успешно конвертирован в " << outputFilename << "!\033[0m\n" << endl;
 }
 
 // END FUNCTIONS
@@ -1847,5 +1936,3 @@ void ConvertFiles() {
     --------------------------------------------------------------------------------------------
     - ListBinFilesAndLoad - Type: void | Task: Select bin file to load | Input args: none
 */
-
-// Vladislav Dmitriev 2024 Kaluga
